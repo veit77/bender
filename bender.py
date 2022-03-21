@@ -1,21 +1,37 @@
-from typing import NamedTuple, Optional, Any
+"""_summary_
+"""
+from typing import Optional, Any
+from dataclasses import dataclass
 from multiprocessing import Pool
 import plistlib
 
 
-class VGBendingMaterialData(NamedTuple):
+@dataclass
+class VGBendingMaterialData:
+    """_summary_
+    """
     name: str
     is_superconductor: bool
     thickness: float
-    E1: float
-    E2: float
-    E3: float
+    youngs1: float
+    youngs2: float
+    youngs3: float
     sigma1: float
     sigma2: float
     critical_tensil_strain: float
 
 
+@dataclass
+class CriticalConditions:
+    """_summary_
+    """
+    pos: float
+    material: VGBendingMaterialData
+
+
 class VGBendingSolver:
+    """_summary_
+    """
     _modell: Optional[list[VGBendingMaterialData]] = None
 
     @property
@@ -31,18 +47,20 @@ class VGBendingSolver:
 
     @property
     def min_double_bending_diameter(self):
-        bendingDD = 0.0
-        bendingDU = 0.0
+        bending_dia_down = 0.0
+        bending_dia_up = 0.0
 
         if self.min_bending_diameter_d is not None:
-            bendingDD = self.min_bending_diameter_d
+            bending_dia_down = self.min_bending_diameter_d
 
         if self.min_bending_diameter_u is not None:
-            bendingDU = self.min_bending_diameter_u
+            bending_dia_up = self.min_bending_diameter_u
 
-        return max(bendingDD, bendingDU)
+        return max(bending_dia_down, bending_dia_up)
 
     def solve(self) -> None:
+        """ Starts the calculation of the critical bending diameter
+        """
         if self._modell is None:
             print("No modell loaded")
             return
@@ -56,15 +74,20 @@ class VGBendingSolver:
             self.min_bending_diameter_d = result[1]
 
     def parse_material_data(self, data: dict[str, Any]) -> None:
+        """ Assigns the material data from the plist to the internal data structure
+
+        Args:
+            data (dict[str, Any]): dictionary containing material data from the plist
+        """
         self._modell = []
         for material in data["Layers"]:
             parameters = VGBendingMaterialData(
                 name=material["name"],
                 is_superconductor=material["isSuperconductor"],
                 thickness=material["thickness"],
-                E1=material["E1"],
-                E2=material["E2"],
-                E3=material["E3"],
+                youngs1=material["E1"],
+                youngs2=material["E2"],
+                youngs3=material["E3"],
                 sigma1=material["sigma1"],
                 sigma2=material["sigma2"],
                 critical_tensil_strain=material["criticalTensilStrain"],
@@ -73,9 +96,6 @@ class VGBendingSolver:
 
     def _min_bending_diameter(
             self, modell: list[VGBendingMaterialData]) -> Optional[float]:
-        class CriticalConditions(NamedTuple):
-            pos: float
-            material: VGBendingMaterialData
 
         bending_diameter: Optional[float] = None
 
@@ -109,10 +129,10 @@ class VGBendingSolver:
             self, diameter: float,
             modell: list[VGBendingMaterialData]) -> float:
         max_value = int(self._total_thickness)
-        forces: list[float] = []
-
-        for value in range(max_value):
-            forces.append(abs(self._force(diameter, float(value), modell)))
+        forces: list[float] = [
+            abs(self._force(diameter, float(value), modell))
+            for value in range(max_value)
+        ]
 
         return float(forces.index(min(forces)))
 
@@ -140,22 +160,25 @@ class VGBendingSolver:
                                               neutral_axis * 1e-6)
 
     def _stress(self, strain: float, material: VGBendingMaterialData) -> float:
-        max_strain1 = material.sigma1 / material.E1
+        max_strain1 = material.sigma1 / material.youngs1
         max_strain2 = max_strain1 + (material.sigma2 -
-                                     material.sigma1) / material.E2
+                                     material.sigma1) / material.youngs2
 
         if strain >= 0:
             if strain > max_strain2:
-                return material.sigma2 + (strain - max_strain2) * material.E3
+                return material.sigma2 + (strain -
+                                          max_strain2) * material.youngs3
             elif strain > max_strain1:
-                return material.sigma1 + (strain - max_strain1) * material.E2
+                return material.sigma1 + (strain -
+                                          max_strain1) * material.youngs2
             else:
-                return strain * material.E1
+                return strain * material.youngs1
         else:
             if strain > -max_strain1:
-                return strain * material.E1
+                return strain * material.youngs1
             else:
-                return -material.sigma1 + (strain + max_strain1) * material.E3
+                return -material.sigma1 + (strain +
+                                           max_strain1) * material.youngs3
 
 
 if __name__ == "__main__":
